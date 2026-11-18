@@ -3,10 +3,7 @@ import LoadingSpinner from './LoadingSpinner';
 
 export default function NotificationSettings({ onToast }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState(null); // { type: 'success' | 'error', message: string }
-
   const [settings, setSettings] = useState({
     recipientEmail: '',
     emailSubjectTemplate: 'OnSpot: New Post Scheduled',
@@ -17,54 +14,30 @@ export default function NotificationSettings({ onToast }) {
     notifyOnDelete: false,
   });
 
-  // Load settings from /api/settings on mount
   useEffect(() => {
-    let isMounted = true;
-    async function fetchSettings() {
+    async function loadSettings() {
       try {
         const res = await fetch('/api/settings');
         if (res.ok) {
           const data = await res.json();
-          if (isMounted && data) {
-            setSettings((prev) => ({
-              ...prev,
-              ...(data.settings || data),
-            }));
+          if (data?.settings) {
+            setSettings((prev) => ({ ...prev, ...data.settings }));
           }
         }
       } catch (err) {
-        // Fallback to default settings silently
-        console.warn('Could not load existing settings, using defaults.', err);
-      } finally {
-        if (isMounted) {
-          setInitialLoading(false);
-        }
+        console.warn('Failed to load settings:', err);
       }
     }
-
-    fetchSettings();
-    return () => {
-      isMounted = false;
-    };
+    loadSettings();
   }, []);
 
-  const handleChange = (field, value) => {
-    setSettings((prev) => ({ ...prev, [field]: value }));
-    if (feedback) setFeedback(null);
+  const handleToggle = (field) => {
+    setSettings((prev) => ({ ...prev, [field]: !prev[field] }));
   };
 
   const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
-    setFeedback(null);
-
-    // Validate email format if provided
-    if (settings.recipientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(settings.recipientEmail)) {
-      setFeedback({ type: 'error', message: 'Please enter a valid email address.' });
-      setSaving(false);
-      return;
-    }
-
     try {
       const res = await fetch('/api/settings', {
         method: 'POST',
@@ -72,203 +45,123 @@ export default function NotificationSettings({ onToast }) {
         body: JSON.stringify(settings),
       });
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.message || `Failed to save settings (${res.status})`);
-      }
-
-      setFeedback({ type: 'success', message: 'Notification settings saved successfully!' });
-      if (onToast) {
-        onToast('Notification settings saved!', 'success');
-      }
+      if (!res.ok) throw new Error('Failed to save settings');
+      onToast?.('Settings updated', 'success');
+      setIsOpen(false);
     } catch (err) {
-      const msg = err.message || 'Failed to save notification settings.';
-      setFeedback({ type: 'error', message: msg });
-      if (onToast) {
-        onToast(msg, 'error');
-      }
+      onToast?.(err.message || 'Error saving settings', 'error');
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <section className="bg-white rounded-xl border border-cardBorder shadow-subtle overflow-hidden transition-all">
-      {/* Clickable Header for Collapsible */}
+    <section className="bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden">
+      {/* Header bar toggle */}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        aria-expanded={isOpen}
-        className="w-full p-5 sm:p-6 text-left flex items-center justify-between hover:bg-gray-50/50 transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset"
+        className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-neutral-50/60 transition"
       >
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-gray-600">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+          <div className="w-7 h-7 rounded-lg bg-neutral-100 flex items-center justify-center text-neutral-600">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
           </div>
           <div>
-            <h2 className="text-xl font-bold text-appText">Notification Settings</h2>
-            <p className="text-xs sm:text-sm text-gray-500">
-              Configure email alert triggers and delivery preferences
+            <h3 className="text-sm font-semibold text-neutral-900 tracking-tight">
+              Notification Preferences
+            </h3>
+            <p className="text-[11px] text-neutral-400">
+              Configure alert triggers and delivery email
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {initialLoading && <LoadingSpinner size="sm" className="text-gray-400" />}
-          <div className={`transform transition-transform duration-200 text-gray-400 ${isOpen ? 'rotate-180' : ''}`}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </div>
-        </div>
+        <svg
+          className={`w-4 h-4 text-neutral-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
       </button>
 
-      {/* Collapsible Content */}
+      {/* Accordion content */}
       {isOpen && (
-        <div className="px-5 pb-6 sm:px-6 pt-2 border-t border-cardBorder animate-slide-in">
-          {feedback && (
-            <div
-              role="alert"
-              className={`mb-5 p-3 rounded-lg text-sm flex items-start gap-2.5 animate-fade-in ${
-                feedback.type === 'success'
-                  ? 'bg-green-50 text-success border border-green-200'
-                  : 'bg-red-50 text-error border border-red-200'
-              }`}
+        <form onSubmit={handleSave} className="p-6 border-t border-neutral-100 space-y-4 bg-neutral-50/20">
+          <div>
+            <label className="block text-xs font-medium text-neutral-700 mb-1">
+              Recipient Email
+            </label>
+            <input
+              type="email"
+              value={settings.recipientEmail}
+              onChange={(e) => setSettings({ ...settings, recipientEmail: e.target.value })}
+              placeholder="you@company.com"
+              className="w-full px-3.5 py-2 rounded-xl border border-neutral-200 text-xs text-neutral-900 placeholder-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-900 focus:border-neutral-900 bg-white"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-neutral-700 mb-1">
+              Subject Template
+            </label>
+            <input
+              type="text"
+              value={settings.emailSubjectTemplate}
+              onChange={(e) => setSettings({ ...settings, emailSubjectTemplate: e.target.value })}
+              placeholder="OnSpot: New Post Scheduled"
+              className="w-full px-3.5 py-2 rounded-xl border border-neutral-200 text-xs text-neutral-900 placeholder-neutral-400 focus:outline-none focus:ring-1 focus:ring-neutral-900 focus:border-neutral-900 bg-white"
+            />
+          </div>
+
+          {/* Toggle Switches */}
+          <div className="pt-2 border-t border-neutral-100 space-y-3">
+            {[
+              { key: 'includeHashtags', label: 'Include hashtags in email' },
+              { key: 'includeScheduledTime', label: 'Include scheduled timestamp' },
+              { key: 'notifyOnCreate', label: 'Notify when new post is scheduled' },
+            ].map(({ key, label }) => (
+              <div key={key} className="flex items-center justify-between py-1">
+                <span className="text-xs text-neutral-700">{label}</span>
+                <button
+                  type="button"
+                  onClick={() => handleToggle(key)}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    settings[key] ? 'bg-neutral-900' : 'bg-neutral-200'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      settings[key] ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-neutral-100">
+            <button
+              type="button"
+              onClick={() => setIsOpen(false)}
+              className="px-3 py-1.5 text-xs text-neutral-500 hover:text-neutral-900"
             >
-              {feedback.type === 'success' ? (
-                <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              ) : (
-                <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              )}
-              <span>{feedback.message}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleSave} className="space-y-4">
-            {/* Recipient Email */}
-            <div>
-              <label htmlFor="recipientEmail" className="block text-sm font-medium text-appText mb-1">
-                Recipient Email
-              </label>
-              <input
-                id="recipientEmail"
-                type="email"
-                placeholder="you@company.com"
-                value={settings.recipientEmail || ''}
-                onChange={(e) => handleChange('recipientEmail', e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-lg border border-cardBorder text-appText placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition text-sm"
-              />
-              <p className="text-xs text-gray-400 mt-1">
-                Leave blank or configure where notification emails are dispatched.
-              </p>
-            </div>
-
-            {/* Email Subject Template */}
-            <div>
-              <label htmlFor="emailSubjectTemplate" className="block text-sm font-medium text-appText mb-1">
-                Email Subject Template
-              </label>
-              <input
-                id="emailSubjectTemplate"
-                type="text"
-                placeholder="OnSpot: New Post Scheduled"
-                value={settings.emailSubjectTemplate || ''}
-                onChange={(e) => handleChange('emailSubjectTemplate', e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-lg border border-cardBorder text-appText placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition text-sm"
-              />
-            </div>
-
-            {/* Checkboxes Group: Content Options */}
-            <div className="pt-2">
-              <span className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                Content Inclusions
-              </span>
-              <div className="space-y-2.5">
-                <label className="flex items-center gap-3 cursor-pointer text-sm text-appText">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(settings.includeHashtags)}
-                    onChange={(e) => handleChange('includeHashtags', e.target.checked)}
-                    className="w-4 h-4 rounded text-primary focus:ring-primary border-cardBorder"
-                  />
-                  <span>Include Hashtags in email</span>
-                </label>
-
-                <label className="flex items-center gap-3 cursor-pointer text-sm text-appText">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(settings.includeScheduledTime)}
-                    onChange={(e) => handleChange('includeScheduledTime', e.target.checked)}
-                    className="w-4 h-4 rounded text-primary focus:ring-primary border-cardBorder"
-                  />
-                  <span>Include Scheduled Time</span>
-                </label>
-              </div>
-            </div>
-
-            {/* Checkboxes Group: Notification Triggers */}
-            <div className="pt-2">
-              <span className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                Notification Triggers
-              </span>
-              <div className="space-y-2.5">
-                <label className="flex items-center gap-3 cursor-pointer text-sm text-appText">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(settings.notifyOnCreate)}
-                    onChange={(e) => handleChange('notifyOnCreate', e.target.checked)}
-                    className="w-4 h-4 rounded text-primary focus:ring-primary border-cardBorder"
-                  />
-                  <span>Notify on Create</span>
-                </label>
-
-                <label className="flex items-center gap-3 cursor-pointer text-sm text-appText">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(settings.notifyOnEdit)}
-                    onChange={(e) => handleChange('notifyOnEdit', e.target.checked)}
-                    className="w-4 h-4 rounded text-primary focus:ring-primary border-cardBorder"
-                  />
-                  <span>Notify on Edit</span>
-                </label>
-
-                <label className="flex items-center gap-3 cursor-pointer text-sm text-appText">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(settings.notifyOnDelete)}
-                    onChange={(e) => handleChange('notifyOnDelete', e.target.checked)}
-                    className="w-4 h-4 rounded text-primary focus:ring-primary border-cardBorder"
-                  />
-                  <span>Notify on Delete</span>
-                </label>
-              </div>
-            </div>
-
-            {/* Save Button */}
-            <div className="flex justify-end pt-4 border-t border-cardBorder">
-              <button
-                type="submit"
-                disabled={saving}
-                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary-hover active:scale-[0.99] disabled:opacity-50 disabled:pointer-events-none transition shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
-              >
-                {saving ? (
-                  <>
-                    <LoadingSpinner size="sm" className="text-white" />
-                    <span>Saving Settings...</span>
-                  </>
-                ) : (
-                  <span>Save Settings</span>
-                )}
-              </button>
-            </div>
-          </form>
-        </div>
+              Close
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-1.5 rounded-xl bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 disabled:opacity-40 transition shadow-xs"
+            >
+              {saving ? 'Saving...' : 'Save Settings'}
+            </button>
+          </div>
+        </form>
       )}
     </section>
   );

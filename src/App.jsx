@@ -18,8 +18,7 @@ export default function App() {
     try {
       const response = await fetch('/api/drive');
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.message || `Failed to fetch posts (${response.status})`);
+        throw new Error('Could not load posts');
       }
 
       const data = await response.json();
@@ -30,13 +29,10 @@ export default function App() {
         list = data.posts;
       } else if (Array.isArray(data.data)) {
         list = data.data;
-      } else if (Array.isArray(data.files)) {
-        list = data.files;
       }
       setPosts(list);
     } catch (err) {
-      console.warn('Error fetching posts:', err);
-      // We don't display an aggressive toast on initial load error if the backend is not yet populated
+      console.warn('Initial fetch posts notice:', err.message);
     } finally {
       setLoadingPosts(false);
     }
@@ -48,7 +44,6 @@ export default function App() {
 
   const handleSelectCaption = (captionObj) => {
     setSelectedCaption(captionObj);
-    // Smooth scroll down slightly to the scheduler if needed
     window.requestAnimationFrame(() => {
       const schedulerEl = document.getElementById('scheduler-section');
       if (schedulerEl) {
@@ -62,14 +57,15 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-appText flex flex-col font-sans">
+    <div className="min-h-screen bg-[#FAFAFA] text-neutral-900 flex flex-col font-sans selection:bg-neutral-900 selection:text-white">
       <Header />
 
-      <main className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+      <main className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-6">
         {/* Section 1: Caption Generator */}
         <CaptionGenerator
           onSelectCaption={handleSelectCaption}
           selectedCaption={selectedCaption}
+          onToast={addToast}
         />
 
         {/* Section 2: Scheduler (Visible when a caption is selected) */}
@@ -96,9 +92,10 @@ export default function App() {
         <NotificationSettings onToast={addToast} />
       </main>
 
-      <footer className="w-full border-t border-cardBorder py-6 text-center text-xs text-gray-400 bg-white">
-        <div className="max-w-3xl mx-auto px-4">
-          OnSpot &copy; {new Date().getFullYear()} &bull; AI-Powered Social Media Management
+      <footer className="w-full border-t border-neutral-200/80 py-8 text-center text-xs text-neutral-400 bg-white">
+        <div className="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <span>OnSpot Studio &bull; Next-Gen Social Workflow</span>
+          <span className="font-mono text-[11px] text-neutral-400">Vercel Serverless &bull; Gemini 3.8 &bull; Drive</span>
         </div>
       </footer>
 

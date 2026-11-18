@@ -2,153 +2,140 @@ import React, { useState } from 'react';
 import LoadingSpinner from './LoadingSpinner';
 
 export default function PostList({ posts = [], onRefresh, loading, onToast }) {
-  const [editingPostId, setEditingPostId] = useState(null);
-  const [editCaption, setEditCaption] = useState('');
-  const [savingPostId, setSavingPostId] = useState(null);
-  const [deletingPostId, setDeletingPostId] = useState(null);
+  const [filter, setFilter] = useState('all');
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
+  const [savingId, setSavingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
-  // Sort posts by scheduled time (newest first)
-  const sortedPosts = [...(posts || [])].sort((a, b) => {
+  const filteredPosts = posts.filter((post) => {
+    if (filter === 'all') return true;
+    return (post.status || 'scheduled').toLowerCase() === filter;
+  });
+
+  const sortedPosts = [...filteredPosts].sort((a, b) => {
     const timeA = new Date(a.scheduledTime || a.createdAt || 0).getTime();
     const timeB = new Date(b.scheduledTime || b.createdAt || 0).getTime();
     return timeB - timeA;
   });
 
-  const formatScheduledTime = (timeStr) => {
-    if (!timeStr) return 'Unscheduled';
-    const date = new Date(timeStr);
-    if (isNaN(date.getTime())) return timeStr;
+  const formatDate = (dateStr) => {
+    if (!dateStr) return 'Unscheduled';
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return dateStr;
 
     return new Intl.DateTimeFormat('en-US', {
       month: 'short',
       day: 'numeric',
-      year: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
     }).format(date);
   };
 
-  const startEditing = (post) => {
-    setEditingPostId(post.id || post._id);
-    setEditCaption(post.caption || '');
-  };
-
-  const cancelEditing = () => {
-    setEditingPostId(null);
-    setEditCaption('');
+  const handleStartEdit = (post) => {
+    setEditingId(post.id);
+    setEditText(post.caption || '');
   };
 
   const handleSaveEdit = async (post) => {
-    const postId = post.id || post._id;
-    if (!editCaption.trim()) {
-      if (onToast) onToast('Caption cannot be empty.', 'error');
+    if (!editText.trim()) {
+      onToast?.('Caption cannot be empty', 'error');
       return;
     }
 
-    setSavingPostId(postId);
-
+    setSavingId(post.id);
     try {
-      const payload = {
-        ...post,
-        id: postId,
-        caption: editCaption.trim(),
-      };
-
-      const response = await fetch(`/api/drive?id=${encodeURIComponent(postId)}`, {
+      const res = await fetch(`/api/drive?id=${encodeURIComponent(post.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...post,
+          caption: editText.trim(),
+        }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.message || `Failed to update post (${response.status})`);
-      }
+      if (!res.ok) throw new Error('Failed to update post');
 
-      setEditingPostId(null);
-      if (onToast) onToast('Post updated successfully!', 'success');
+      onToast?.('Post updated', 'success');
+      setEditingId(null);
       if (onRefresh) await onRefresh();
     } catch (err) {
-      if (onToast) onToast(err.message || 'Error updating post.', 'error');
+      onToast?.(err.message, 'error');
     } finally {
-      setSavingPostId(null);
+      setSavingId(null);
     }
   };
 
   const handleDelete = async (postId) => {
-    setDeletingPostId(postId);
+    setDeletingId(postId);
     setConfirmDeleteId(null);
-
     try {
-      const response = await fetch(`/api/drive?id=${encodeURIComponent(postId)}`, {
+      const res = await fetch(`/api/drive?id=${encodeURIComponent(postId)}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: postId }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.message || `Failed to delete post (${response.status})`);
-      }
+      if (!res.ok) throw new Error('Failed to delete post');
 
-      if (onToast) onToast('Post deleted successfully.', 'info');
+      onToast?.('Post removed', 'info');
       if (onRefresh) await onRefresh();
     } catch (err) {
-      if (onToast) onToast(err.message || 'Failed to delete post.', 'error');
+      onToast?.(err.message, 'error');
     } finally {
-      setDeletingPostId(null);
+      setDeletingId(null);
     }
   };
 
-  const getStatusBadge = (status = 'scheduled') => {
-    const normalized = status.toLowerCase();
-    if (normalized === 'published') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-50 text-success border border-green-200">
-          <span className="w-1.5 h-1.5 rounded-full bg-success"></span>
-          Published
-        </span>
-      );
-    }
-    if (normalized === 'failed') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-error border border-red-200">
-          <span className="w-1.5 h-1.5 rounded-full bg-error"></span>
-          Failed
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-primary border border-blue-200">
-        <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
-        Scheduled
-      </span>
-    );
+  const handleCopy = (text) => {
+    navigator.clipboard.writeText(text);
+    onToast?.('Caption copied', 'info');
   };
 
   return (
-    <section className="bg-white rounded-xl border border-cardBorder shadow-subtle p-5 sm:p-6 transition-all">
-      <div className="flex items-center justify-between mb-4 pb-3 border-b border-cardBorder">
+    <section className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-6 sm:p-7">
+      {/* Header and Filter Tabs */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 pb-4 border-b border-neutral-100">
         <div className="flex items-center gap-2.5">
-          <h2 className="text-xl font-bold text-appText">Scheduled Posts</h2>
-          <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-bold bg-gray-100 text-gray-700">
-            {sortedPosts.length}
+          <h2 className="text-lg font-semibold text-neutral-900 tracking-tight">
+            Schedule Queue
+          </h2>
+          <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600">
+            {posts.length}
           </span>
         </div>
 
-        {onRefresh && (
+        <div className="flex items-center gap-2">
+          {/* Filter Pills */}
+          <div className="flex items-center p-0.5 rounded-lg bg-neutral-100 text-xs font-medium text-neutral-600">
+            {['all', 'scheduled', 'draft'].map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setFilter(tab)}
+                className={`capitalize px-2.5 py-1 rounded-md transition ${
+                  filter === tab
+                    ? 'bg-white text-neutral-900 shadow-xs'
+                    : 'text-neutral-500 hover:text-neutral-900'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          {/* Refresh button */}
           <button
             type="button"
             onClick={onRefresh}
             disabled={loading}
-            className="p-1.5 text-gray-500 hover:text-primary rounded-lg hover:bg-gray-100 transition focus:outline-none focus:ring-2 focus:ring-primary"
-            title="Refresh posts"
-            aria-label="Refresh posts"
+            className="p-1.5 rounded-lg border border-neutral-200 text-neutral-400 hover:text-neutral-700 hover:bg-neutral-50 transition"
+            title="Refresh feed"
           >
             <svg
-              className={`w-4 h-4 ${loading ? 'animate-spin text-primary' : ''}`}
+              className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-neutral-900' : ''}`}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -156,32 +143,29 @@ export default function PostList({ posts = [], onRefresh, loading, onToast }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
           </button>
-        )}
+        </div>
       </div>
 
-      {loading && sortedPosts.length === 0 ? (
-        <div className="py-12 flex flex-col items-center justify-center text-gray-400">
-          <LoadingSpinner size="lg" />
-          <p className="mt-3 text-sm">Loading scheduled posts...</p>
+      {/* Posts List */}
+      {loading && posts.length === 0 ? (
+        <div className="py-12 flex flex-col items-center justify-center text-neutral-400">
+          <LoadingSpinner size="md" className="text-neutral-900" />
+          <span className="text-xs mt-3">Syncing posts...</span>
         </div>
       ) : sortedPosts.length === 0 ? (
-        <div className="py-12 px-4 text-center">
-          <div className="w-14 h-14 mx-auto rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-2xl shadow-inner mb-3">
-            📅
-          </div>
-          <h3 className="text-base font-semibold text-appText">No scheduled posts yet</h3>
-          <p className="text-sm text-gray-500 max-w-sm mx-auto mt-1">
-            Generate captions above and schedule your first post to see it listed here.
+        <div className="py-12 text-center">
+          <p className="text-sm font-medium text-neutral-700">No scheduled posts yet</p>
+          <p className="text-xs text-neutral-400 mt-1">
+            Create and schedule your first caption above.
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {sortedPosts.map((post) => {
-            const postId = post.id || post._id;
-            const isEditing = editingPostId === postId;
-            const isSaving = savingPostId === postId;
-            const isDeleting = deletingPostId === postId;
-            const isConfirming = confirmDeleteId === postId;
+            const isEditing = editingId === post.id;
+            const isSaving = savingId === post.id;
+            const isDeleting = deletingId === post.id;
+            const isConfirming = confirmDeleteId === post.id;
 
             const hashtags = Array.isArray(post.hashtags)
               ? post.hashtags
@@ -191,53 +175,63 @@ export default function PostList({ posts = [], onRefresh, loading, onToast }) {
 
             return (
               <div
-                key={postId}
-                className="p-4 sm:p-5 rounded-lg border border-cardBorder hover:border-gray-300 bg-white transition shadow-subtle"
+                key={post.id}
+                className="group p-4 rounded-xl border border-neutral-200/90 hover:border-neutral-300 transition-all bg-white"
               >
-                {/* Header row: Status and Scheduled Time */}
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2">
-                    {getStatusBadge(post.status)}
-                    <span className="text-xs text-gray-500 flex items-center gap-1 font-medium">
-                      <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      {formatScheduledTime(post.scheduledTime)}
+                {/* Meta Row */}
+                <div className="flex items-center justify-between gap-2 mb-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-neutral-100 text-neutral-700">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      {post.status || 'scheduled'}
+                    </span>
+
+                    <span className="text-xs font-mono text-neutral-400">
+                      {formatDate(post.scheduledTime)}
                     </span>
                   </div>
 
-                  {/* Actions buttons */}
-                  <div className="flex items-center gap-1">
+                  {/* Actions */}
+                  <div className="flex items-center gap-1 opacity-90 group-hover:opacity-100 transition">
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(post.caption)}
+                      className="p-1.5 text-neutral-400 hover:text-neutral-700 rounded-md hover:bg-neutral-100 transition"
+                      title="Copy text"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </button>
+
                     {!isEditing && (
                       <button
                         type="button"
-                        onClick={() => startEditing(post)}
-                        disabled={isSaving || isDeleting}
-                        className="p-1.5 text-gray-500 hover:text-primary hover:bg-gray-100 rounded-md transition"
-                        title="Edit caption"
-                        aria-label="Edit caption"
+                        onClick={() => handleStartEdit(post)}
+                        className="p-1.5 text-neutral-400 hover:text-neutral-700 rounded-md hover:bg-neutral-100 transition"
+                        title="Edit"
                       >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                         </svg>
                       </button>
                     )}
 
                     {isConfirming ? (
-                      <div className="flex items-center gap-1.5 animate-fade-in bg-red-50 p-1 rounded-md border border-red-200">
-                        <span className="text-xs text-error font-medium px-1">Delete?</span>
+                      <div className="flex items-center gap-1 bg-rose-50 px-1.5 py-0.5 rounded-lg border border-rose-200">
+                        <span className="text-[10px] text-rose-600 font-semibold">Delete?</span>
                         <button
                           type="button"
-                          onClick={() => handleDelete(postId)}
+                          onClick={() => handleDelete(post.id)}
                           disabled={isDeleting}
-                          className="px-2 py-0.5 text-xs font-semibold bg-error text-white rounded hover:bg-red-700 transition"
+                          className="text-[10px] px-1.5 py-0.5 bg-rose-600 text-white rounded font-medium hover:bg-rose-700 transition"
                         >
                           {isDeleting ? '...' : 'Yes'}
                         </button>
                         <button
                           type="button"
                           onClick={() => setConfirmDeleteId(null)}
-                          className="px-2 py-0.5 text-xs font-semibold bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition"
+                          className="text-[10px] px-1.5 py-0.5 bg-neutral-200 text-neutral-700 rounded hover:bg-neutral-300 transition"
                         >
                           No
                         </button>
@@ -245,81 +239,59 @@ export default function PostList({ posts = [], onRefresh, loading, onToast }) {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => setConfirmDeleteId(postId)}
-                        disabled={isSaving || isDeleting}
-                        className="p-1.5 text-gray-400 hover:text-error hover:bg-red-50 rounded-md transition"
-                        title="Delete post"
-                        aria-label="Delete post"
+                        onClick={() => setConfirmDeleteId(post.id)}
+                        className="p-1.5 text-neutral-400 hover:text-rose-600 rounded-md hover:bg-rose-50 transition"
+                        title="Delete"
                       >
-                        {isDeleting ? (
-                          <LoadingSpinner size="sm" className="text-error" />
-                        ) : (
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        )}
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
                       </button>
                     )}
                   </div>
                 </div>
 
-                {/* Content body */}
+                {/* Content */}
                 {isEditing ? (
-                  <div className="space-y-3 pt-1 animate-fade-in">
-                    <label htmlFor={`edit-textarea-${postId}`} className="sr-only">
-                      Edit Caption
-                    </label>
+                  <div className="space-y-2 mt-2">
                     <textarea
-                      id={`edit-textarea-${postId}`}
-                      rows={4}
-                      value={editCaption}
-                      onChange={(e) => setEditCaption(e.target.value)}
-                      className="w-full p-3 rounded-lg border border-primary text-sm text-appText focus:outline-none focus:ring-2 focus:ring-primary"
+                      rows={3}
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      className="w-full p-3 rounded-lg border border-neutral-900 text-sm text-neutral-900 focus:outline-none"
                       disabled={isSaving}
+                      autoFocus
                     />
                     <div className="flex justify-end gap-2">
                       <button
                         type="button"
-                        onClick={cancelEditing}
-                        disabled={isSaving}
-                        className="px-3 py-1.5 rounded-md text-xs font-medium text-gray-600 hover:bg-gray-100 transition"
+                        onClick={() => setEditingId(null)}
+                        className="px-2.5 py-1 text-xs text-neutral-500 hover:text-neutral-900"
                       >
                         Cancel
                       </button>
                       <button
                         type="button"
                         onClick={() => handleSaveEdit(post)}
-                        disabled={isSaving || !editCaption.trim()}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-primary text-white text-xs font-semibold hover:bg-primary-hover disabled:opacity-50 transition"
+                        disabled={isSaving}
+                        className="px-3 py-1 rounded-md bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 disabled:opacity-40"
                       >
-                        {isSaving ? (
-                          <>
-                            <LoadingSpinner size="sm" className="text-white" />
-                            <span>Saving...</span>
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                            <span>Save</span>
-                          </>
-                        )}
+                        {isSaving ? 'Saving...' : 'Save'}
                       </button>
                     </div>
                   </div>
                 ) : (
                   <div>
-                    <p className="text-sm text-appText whitespace-pre-wrap leading-relaxed">
+                    <p className="text-sm text-neutral-800 leading-relaxed whitespace-pre-wrap">
                       {post.caption}
                     </p>
 
                     {hashtags.length > 0 && (
                       <div className="mt-2.5 flex flex-wrap gap-1.5">
-                        {hashtags.map((tag, tagIdx) => (
+                        {hashtags.map((tag, idx) => (
                           <span
-                            key={tagIdx}
-                            className="text-xs font-medium text-primary"
+                            key={idx}
+                            className="text-xs font-mono text-neutral-500 bg-neutral-100/60 px-1.5 py-0.5 rounded"
                           >
                             {tag.startsWith('#') ? tag : `#${tag}`}
                           </span>

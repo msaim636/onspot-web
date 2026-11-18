@@ -6,13 +6,12 @@ export default function Scheduler({ selectedCaption, onPostSaved, onClearSelecti
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Set default scheduled time to 1 hour from now formatted for datetime-local
   useEffect(() => {
     if (selectedCaption) {
+      // Default to 2 hours from now rounded
       const now = new Date();
-      now.setHours(now.getHours() + 1);
-      now.setMinutes(0, 0, 0); // round to next hour
-      // Local ISO string slice for datetime-local input (YYYY-MM-DDTHH:mm)
+      now.setHours(now.getHours() + 2);
+      now.setMinutes(0, 0, 0);
       const tzOffset = now.getTimezoneOffset() * 60000;
       const localISOTime = new Date(now.getTime() - tzOffset).toISOString().slice(0, 16);
       setScheduledTime(localISOTime);
@@ -22,7 +21,14 @@ export default function Scheduler({ selectedCaption, onPostSaved, onClearSelecti
 
   if (!selectedCaption) return null;
 
-  // Minimum time allowed (current minute)
+  const setPreset = (hoursFromNow) => {
+    const d = new Date();
+    d.setHours(d.getHours() + hoursFromNow);
+    d.setMinutes(0, 0, 0);
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    setScheduledTime(new Date(d.getTime() - tzOffset).toISOString().slice(0, 16));
+  };
+
   const getMinDateTime = () => {
     const now = new Date();
     const tzOffset = now.getTimezoneOffset() * 60000;
@@ -34,144 +40,123 @@ export default function Scheduler({ selectedCaption, onPostSaved, onClearSelecti
     setError(null);
 
     if (!scheduledTime) {
-      setError('Please select a date and time to schedule this post.');
+      setError('Please select a date and time.');
       return;
     }
 
     const scheduledDate = new Date(scheduledTime);
-    if (isNaN(scheduledDate.getTime())) {
-      setError('Please provide a valid date and time.');
-      return;
-    }
-
-    if (scheduledDate <= new Date()) {
-      setError('Scheduled time must be in the future.');
+    if (isNaN(scheduledDate.getTime()) || scheduledDate <= new Date()) {
+      setError('Please select a future date and time.');
       return;
     }
 
     setLoading(true);
 
     try {
-      const postPayload = {
+      const payload = {
         caption: selectedCaption.caption,
         hashtags: selectedCaption.hashtags || [],
         scheduledTime: scheduledDate.toISOString(),
         status: 'scheduled',
       };
 
-      // 1. POST to /api/drive
-      const driveRes = await fetch('/api/drive', {
+      // 1. Save to Drive / Local
+      const res = await fetch('/api/drive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(postPayload),
+        body: JSON.stringify(payload),
       });
 
-      if (!driveRes.ok) {
-        const errorData = await driveRes.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.message || `Failed to save post (${driveRes.status})`);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to save post (${res.status})`);
       }
 
-      // 2. POST to /api/notify
+      // 2. Trigger notification
       try {
         await fetch('/api/notify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            caption: selectedCaption.caption,
-            hashtags: selectedCaption.hashtags || [],
-            scheduledTime: scheduledDate.toISOString(),
-          }),
+          body: JSON.stringify(payload),
         });
       } catch (notifyErr) {
-        // Notification failure shouldn't necessarily block successful post creation
-        console.warn('Notification failed:', notifyErr);
+        console.warn('Notification error:', notifyErr);
       }
 
-      if (onToast) {
-        onToast('Post scheduled successfully!', 'success');
-      }
-
-      // 3. Call onPostSaved() to refresh list
-      if (onPostSaved) {
-        await onPostSaved();
-      }
-
-      // 4. Clear selection
-      if (onClearSelection) {
-        onClearSelection();
-      }
+      onToast?.('Post scheduled successfully', 'success');
+      if (onPostSaved) await onPostSaved();
+      if (onClearSelection) onClearSelection();
     } catch (err) {
-      setError(err.message || 'Failed to schedule post.');
-      if (onToast) {
-        onToast(err.message || 'Failed to schedule post.', 'error');
-      }
+      setError(err.message || 'Error scheduling post.');
+      onToast?.(err.message || 'Error scheduling post', 'error');
     } finally {
       setLoading(false);
     }
   };
 
   const captionText = selectedCaption.caption || '';
-  const previewText = captionText.length > 160 ? `${captionText.substring(0, 160)}...` : captionText;
-  const hashtags = Array.isArray(selectedCaption.hashtags)
-    ? selectedCaption.hashtags
-    : typeof selectedCaption.hashtags === 'string'
-    ? selectedCaption.hashtags.split(/\s+/).filter(Boolean)
-    : [];
+  const preview = captionText.length > 120 ? `${captionText.slice(0, 120)}...` : captionText;
 
   return (
-    <section className="bg-white rounded-xl border-2 border-primary/30 shadow-card p-5 sm:p-6 animate-slide-in transition-all">
-      <div className="flex items-start justify-between gap-4 mb-4">
-        <div>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-primary border border-blue-200 mb-2">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            Caption Selected
-          </div>
-          <h2 className="text-xl font-bold text-appText">Schedule Post</h2>
-          <p className="text-sm text-gray-500">
-            Choose the publish time and save your post to the schedule.
-          </p>
+    <section className="bg-white rounded-2xl border border-neutral-900 shadow-sm p-6 sm:p-7 animate-slide-in">
+      <div className="flex items-center justify-between gap-4 mb-4">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-neutral-900"></span>
+          <h2 className="text-base font-semibold text-neutral-900 tracking-tight">
+            Schedule Slot
+          </h2>
         </div>
         <button
           type="button"
           onClick={onClearSelection}
-          className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition"
-          title="Cancel selection"
-          aria-label="Cancel selection"
+          className="text-neutral-400 hover:text-neutral-600 text-xs flex items-center gap-1 transition"
         >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          Cancel
         </button>
       </div>
 
-      {/* Selected Caption Preview */}
-      <div className="bg-gray-50 rounded-lg p-3.5 border border-cardBorder mb-5">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">
-          Caption Preview
+      {/* Selected Preview Box */}
+      <div className="p-3.5 rounded-xl bg-neutral-50 border border-neutral-200/80 mb-5">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-neutral-400 block mb-1">
+          Draft Content
+        </span>
+        <p className="text-xs text-neutral-700 italic line-clamp-2">
+          "{preview}"
         </p>
-        <p className="text-sm text-appText italic whitespace-pre-wrap line-clamp-3">
-          "{previewText}"
-        </p>
-        {hashtags.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1">
-            {hashtags.map((tag, idx) => (
-              <span key={idx} className="text-xs font-medium text-primary">
-                {tag.startsWith('#') ? tag : `#${tag}`}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
       <form onSubmit={handleSave} className="space-y-4">
         <div>
-          <label htmlFor="scheduled-time" className="block text-sm font-medium text-appText mb-1.5">
-            Publication Date & Time
+          <label className="block text-xs font-medium text-neutral-700 mb-2">
+            Target Publication Date & Time
           </label>
+
+          {/* Quick presets */}
+          <div className="flex flex-wrap gap-1.5 mb-2.5">
+            <button
+              type="button"
+              onClick={() => setPreset(1)}
+              className="px-2.5 py-1 rounded-md text-[11px] font-medium border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-600 transition"
+            >
+              In 1 hr
+            </button>
+            <button
+              type="button"
+              onClick={() => setPreset(4)}
+              className="px-2.5 py-1 rounded-md text-[11px] font-medium border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-600 transition"
+            >
+              In 4 hrs
+            </button>
+            <button
+              type="button"
+              onClick={() => setPreset(24)}
+              className="px-2.5 py-1 rounded-md text-[11px] font-medium border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-600 transition"
+            >
+              Tomorrow
+            </button>
+          </div>
+
           <input
-            id="scheduled-time"
             type="datetime-local"
             min={getMinDateTime()}
             value={scheduledTime}
@@ -180,57 +165,38 @@ export default function Scheduler({ selectedCaption, onPostSaved, onClearSelecti
               if (error) setError(null);
             }}
             required
-            className="w-full px-3.5 py-2.5 rounded-lg border border-cardBorder text-appText focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition text-sm bg-white"
+            className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-200 text-neutral-900 focus:outline-none focus:ring-2 focus:ring-neutral-900/10 focus:border-neutral-900 transition text-sm bg-white"
             disabled={loading}
           />
-          <p className="text-xs text-gray-400 mt-1">
-            Select a future time for when this post should be released.
-          </p>
         </div>
 
         {error && (
-          <div
-            role="alert"
-            className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-error flex items-start gap-2.5 animate-fade-in"
-          >
-            <svg
-              className="w-4 h-4 text-error shrink-0 mt-0.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="flex-1">{error}</span>
+          <div className="p-3 bg-rose-50/70 border border-rose-200/70 rounded-xl text-xs text-rose-700">
+            {error}
           </div>
         )}
 
-        <div className="flex items-center justify-end gap-3 pt-2">
+        <div className="flex items-center justify-end gap-2.5 pt-2">
           <button
             type="button"
             onClick={onClearSelection}
             disabled={loading}
-            className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition"
+            className="px-3.5 py-2 rounded-xl text-xs font-medium text-neutral-600 hover:bg-neutral-100 transition"
           >
-            Cancel
+            Discard
           </button>
           <button
             type="submit"
             disabled={loading || !scheduledTime}
-            className="inline-flex items-center justify-center gap-2 px-5 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary-hover active:scale-[0.99] disabled:opacity-50 disabled:pointer-events-none transition shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+            className="inline-flex items-center justify-center gap-2 px-5 py-2 rounded-xl bg-neutral-900 text-white text-xs font-semibold hover:bg-neutral-800 disabled:opacity-40 transition shadow-xs"
           >
             {loading ? (
               <>
                 <LoadingSpinner size="sm" className="text-white" />
-                <span>Scheduling...</span>
+                <span>Saving...</span>
               </>
             ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <span>Save & Schedule</span>
-              </>
+              <span>Confirm & Schedule</span>
             )}
           </button>
         </div>
