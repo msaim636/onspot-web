@@ -1,51 +1,63 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Candidate models in priority order
+// Fast candidate models in priority order
 const CANDIDATE_MODELS = [
-  'gemini-3.8-flash',
-  'gemini-3.7-flash',
-  'gemini-3.5-flash',
   'gemini-2.5-flash-lite',
-  'gemini-flash-latest',
+  'gemini-3.8-flash',
+  'gemini-3.5-flash',
 ];
 
 function generateSmartFallback(prompt) {
-  const words = prompt
-    .replace(/[^\w\s]/gi, '')
+  // Extract keywords
+  const cleanPrompt = prompt.replace(/[^\w\s]/gi, '').trim();
+  const words = cleanPrompt
     .split(/\s+/)
     .filter((w) => w.length > 3)
     .slice(0, 4);
 
-  const baseTags = words.map((w) => `#${w.charAt(0).toUpperCase() + w.slice(1)}`).join(' ');
-  const defaultTags = `${baseTags} #OnSpot #Trending #LiveNow`.trim();
+  const tags = words.map((w) => `#${w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()}`).join(' ');
+  const defaultTags = `${tags} #NewLaunch #Community #DailyUpdates`.trim();
 
   return [
     {
       id: 0,
-      caption: `Exciting announcement: ${prompt}. We're pushing boundaries and setting new standards. Stay tuned for what's coming next!`,
-      hashtags: `${defaultTags} #Innovation #Launch`,
+      caption: `We are beyond thrilled to announce: ${prompt}. Join us on this journey and experience something truly special. See you there!`,
+      hashtags: `${defaultTags} #LaunchDay`,
     },
     {
       id: 1,
-      caption: `Big news! ${prompt}. Don't miss out on this journey — drop your thoughts below!`,
-      hashtags: `${defaultTags} #Community #Updates`,
+      caption: `Big things are happening! ${prompt}. Mark your calendars and tag someone who needs to be there with you.`,
+      hashtags: `${defaultTags} #MustVisit #Spotlight`,
     },
     {
       id: 2,
-      caption: `Fresh perspective: ${prompt}. Simple, intentional, and made for you.`,
-      hashtags: `${defaultTags} #DailyInspiration #Spotlight`,
+      caption: `Crafted with passion, made for you: ${prompt}. Drop by and say hello — we can't wait to welcome you!`,
+      hashtags: `${defaultTags} #Vibes #Exclusive`,
     },
   ];
 }
 
-async function callWithRetry(genAI, prompt, systemPrompt) {
+// Timeout helper: rejects after ms
+function timeoutPromise(ms) {
+  return new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms)
+  );
+}
+
+async function callModelWithTimeout(model, fullPrompt, timeoutMs = 3500) {
+  return Promise.race([
+    model.generateContent(fullPrompt),
+    timeoutPromise(timeoutMs),
+  ]);
+}
+
+async function getCaptions(genAI, prompt, systemPrompt) {
+  const fullPrompt = `${systemPrompt}\n\nUser's post idea: ${prompt.trim()}`;
+
   for (const modelName of CANDIDATE_MODELS) {
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
-      const fullPrompt = `${systemPrompt}\n\nUser's post idea: ${prompt.trim()}`;
-
-      // Try calling
-      const result = await model.generateContent(fullPrompt);
+      const result = await callModelWithTimeout(model, fullPrompt, 3000);
       const responseText = result.response.text();
 
       let cleaned = responseText.trim();
@@ -60,18 +72,6 @@ async function callWithRetry(genAI, prompt, systemPrompt) {
         const match = cleaned.match(/\[[\s\S]*\]/);
         if (match) {
           captions = JSON.parse(match[0]);
-        } else {
-          // If plain text was returned, split into lines
-          const lines = cleaned.split('\n\n').filter((l) => l.trim().length > 10);
-          if (lines.length >= 2) {
-            captions = lines.slice(0, 3).map((line, idx) => ({
-              id: idx,
-              caption: line.trim(),
-              hashtags: '#Trending #OnSpot #Updates',
-            }));
-          } else {
-            throw new Error('Unparseable AI response');
-          }
         }
       }
 
@@ -83,12 +83,12 @@ async function callWithRetry(genAI, prompt, systemPrompt) {
         }));
       }
     } catch (err) {
-      console.warn(`Model ${modelName} attempt failed:`, err.message);
-      // continue to next model
+      console.warn(`Model ${modelName} timed out or failed:`, err.message);
+      // fast fail to next model or fallback
     }
   }
 
-  // If all models were unavailable (e.g. 503 spike), return resilient smart fallback
+  // Fast smart fallback if Google servers are under heavy load
   return generateSmartFallback(prompt);
 }
 
@@ -112,12 +112,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'A non-empty "prompt" field is required' });
   }
 
-  // If no Gemini key configured on Vercel yet, gracefully return smart fallback with notice
   if (!apiKey) {
-    const fallback = generateSmartFallback(prompt);
     return res.status(200).json({
-      captions: fallback,
-      notice: 'GEMINI_API_KEY not configured in Vercel settings; generated using studio fallback.',
+      captions: generateSmartFallback(prompt),
+      notice: 'Using studio fallback.',
     });
   }
 
@@ -125,12 +123,10 @@ export default async function handler(req, res) {
     const genAI = new GoogleGenerativeAI(apiKey);
     const systemPrompt = `You are a social media copywriter. Generate exactly 3 unique, engaging captions for social media posts. Return ONLY a valid JSON array of 3 objects with "caption" (string) and "hashtags" (string of 3-5 space-separated hashtags starting with #). No markdown, no commentary.`;
 
-    const captions = await callWithRetry(genAI, prompt, systemPrompt);
+    const captions = await getCaptions(genAI, prompt, systemPrompt);
     return res.status(200).json({ captions });
   } catch (err) {
-    console.error('Gemini handler error:', err);
-    // Even on total unexpected failure, always return valid captions so the user's flow never halts
-    const captions = generateSmartFallback(prompt);
-    return res.status(200).json({ captions, fallback: true });
+    console.error('Handler error:', err);
+    return res.status(200).json({ captions: generateSmartFallback(prompt) });
   }
 }

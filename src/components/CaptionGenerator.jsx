@@ -29,11 +29,16 @@ export default function CaptionGenerator({ onSelectCaption, selectedCaption, onT
 
     try {
       const fullPrompt = `Tone: ${selectedTone}. Topic: ${trimmed}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 7000);
+
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: fullPrompt }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -67,7 +72,11 @@ export default function CaptionGenerator({ onSelectCaption, selectedCaption, onT
         setError('No captions generated. Try rewording your prompt.');
       }
     } catch (err) {
-      setError(err.message || 'Failed to generate captions. Please try again.');
+      if (err.name === 'AbortError') {
+        setError('Generation timed out. Please try again in a few seconds.');
+      } else {
+        setError(err.message || 'Failed to generate captions. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
